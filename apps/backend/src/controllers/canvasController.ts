@@ -18,7 +18,7 @@ import { initializeYSweetDoc } from '../utils/ysweetUtils.js';
 import { labelBlocks, buildHandleMap, parseLabelledMarkdown, deriveOps, LABEL_INSTRUCTION } from '@/services/canvas/blockLabels.js';
 import { createBlockRenderer } from '@/services/canvas/blockRender.js';
 import { saveReadReceipt, getReadReceipt } from '@/services/canvas/readReceipt.js';
-import { readFromYSweet as readFromYSweetBlocks } from '../utils/ysweetUtils.js';
+import { readFromYSweetOrNull as readFromYSweetBlocks } from '../utils/ysweetUtils.js';
 import { createSuggestionBatch } from '@/services/canvas/suggestions.js';
 import { convertMarkdownToBlockNote, convertBlockNoteToMarkdown, getCanvasUrl, getCanvasById } from '../services/canvasService.js';
 
@@ -515,6 +515,11 @@ export class CanvasController {
       }
 
       const current = await readFromYSweetBlocks(canvas.id);
+      if (current === null) {
+        logger.error(`[CANVAS-UPDATE] Could not read canvas ${canvas.id}; refusing to derive changes`);
+        res.status(503).json({ error: 'Could not read the canvas right now. Try again shortly.' });
+        return;
+      }
 
       // Suggestion mode, no exceptions: this route only receives agent writes
       // (S2S, spaces-edit-canvas) and NEVER touches the document itself — every

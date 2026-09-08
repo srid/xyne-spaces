@@ -309,18 +309,19 @@ export async function syncToYSweet(canvasId: string, blocks: BlockNoteBlock[]): 
 }
 
 /**
- * Read BlockNote content from a Y-Sweet document.
- * This retrieves the content stored in Y-Sweet for collaborative editing.
+ * Read BlockNote content from a Y-Sweet document, distinguishing "the document
+ * is empty" from "the read failed".
+ *
  *
  * @param canvasId - The document ID (canvas ID)
- * @returns Array of BlockNote blocks, or empty array if unable to read
+ * @returns The blocks ([] for a genuinely empty document), or null if the read failed
  */
-export async function readFromYSweet(canvasId: string): Promise<BlockNoteBlock[]> {
+export async function readFromYSweetOrNull(canvasId: string): Promise<BlockNoteBlock[] | null> {
   try {
     const ysweetUrl = config.ysweet.url;
     if (!ysweetUrl) {
-      logger.warn('[YSweetUtils] Y-Sweet URL not configured, returning empty content');
-      return [];
+      logger.warn('[YSweetUtils] Y-Sweet URL not configured, cannot read content');
+      return null;
     }
 
     // Get a client token with read-only authorization
@@ -349,9 +350,17 @@ export async function readFromYSweet(canvasId: string): Promise<BlockNoteBlock[]
     logger.info(`[YSweetUtils] Successfully read ${blocks.length} blocks from Y-Sweet for canvas ${canvasId}`);
     return blocks as BlockNoteBlock[];
   } catch (error) {
+    if (error instanceof YSweetHttpError && error.status === 404) {
+      logger.debug(`[YSweetUtils] No Y-Sweet document for canvas ${canvasId}; treating as empty`);
+      return [];
+    }
     logger.error('[YSweetUtils] Failed to read from Y-Sweet:', error);
-    return [];
+    return null;
   }
+}
+
+export async function readFromYSweet(canvasId: string): Promise<BlockNoteBlock[]> {
+  return (await readFromYSweetOrNull(canvasId)) ?? [];
 }
 
 /**
