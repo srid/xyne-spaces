@@ -132,20 +132,25 @@ function shredNode(value: unknown, seen: WeakSet<object>, depth: number, opts: R
       return arr;
     }
 
-    const out: Record<string, LogValueOut> = Object.create(null) as Record<string, LogValueOut>;
+    // Collect [key, value] pairs and build the object with Object.fromEntries
+    // rather than `out[key] = …`. Field names still come from the input (that's
+    // the point — preserve the log contract), but we never use a user value as a
+    // property-write target, and __proto__/constructor/prototype are dropped, so
+    // there is no prototype-pollution / property-injection surface.
+    const entries: Array<[string, LogValueOut]> = [];
+    const keys = Object.keys(value as Record<string, unknown>);
     let count = 0;
-    for (const key of Object.keys(value as Record<string, unknown>)) {
+    for (const key of keys) {
       if (count >= opts.maxEntries) {
-        out["…"] = `[${Object.keys(value as Record<string, unknown>).length - count} more keys]`;
+        entries.push(["…", `[${keys.length - count} more keys]`]);
         break;
       }
       count++;
-      // Property-injection / prototype-pollution guard: never write these keys.
       if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
       // KEY detector: secret-named field redacted wholesale (don't recurse into it).
-      out[key] = isSecretKey(key) ? REDACTED : shredNode((value as Record<string, unknown>)[key], seen, depth + 1, opts);
+      entries.push([key, isSecretKey(key) ? REDACTED : shredNode((value as Record<string, unknown>)[key], seen, depth + 1, opts)]);
     }
-    return out;
+    return Object.fromEntries(entries);
   } finally {
     seen.delete(obj);
   }

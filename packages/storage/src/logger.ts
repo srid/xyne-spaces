@@ -1,4 +1,4 @@
-import { shred, shredText } from "@xyne/logger";
+import { shred } from "@xyne/logger";
 
 export interface StorageLogger {
   info(message: string, ...meta: unknown[]): void;
@@ -7,20 +7,18 @@ export interface StorageLogger {
   debug?(message: string, ...meta: unknown[]): void;
 }
 
-// Collapse newlines so a value can't forge extra log lines on the console sink
-// (log injection). @xyne/logger already strips these; this repeats it locally
-// at the sink as an explicit, in-file guard.
-const oneLine = (v: unknown): unknown =>
-  typeof v === "string" ? v.replace(/[\r\n\u2028\u2029]+/g, " ") : v;
+// Serialise a call to ONE shredded JSON line. JSON.stringify escapes newlines/
+// control chars, so a user value can't forge extra log lines (log injection),
+// and shred() removes secret values. Hosts can inject their own logger via
+// setStorageLogger; this is the safe default sink.
+const toLine = (message: string, meta: unknown[]): string =>
+  JSON.stringify(shred(meta.length > 0 ? { message, meta } : { message }));
 
-// Default sink: console, with secret values shredded and newlines neutralised
-// before anything is written. Hosts can still inject their own (already-safe)
-// logger via setStorageLogger.
 const shreddingConsole: StorageLogger = {
-  info: (message, ...meta) => console.info(oneLine(shredText(message)), ...meta.map((m) => oneLine(shred(m)))),
-  warn: (message, ...meta) => console.warn(oneLine(shredText(message)), ...meta.map((m) => oneLine(shred(m)))),
-  error: (message, ...meta) => console.error(oneLine(shredText(message)), ...meta.map((m) => oneLine(shred(m)))),
-  debug: (message, ...meta) => console.debug(oneLine(shredText(message)), ...meta.map((m) => oneLine(shred(m)))),
+  info: (message, ...meta) => console.info(toLine(message, meta)),
+  warn: (message, ...meta) => console.warn(toLine(message, meta)),
+  error: (message, ...meta) => console.error(toLine(message, meta)),
+  debug: (message, ...meta) => console.debug(toLine(message, meta)),
 };
 
 export let logger: StorageLogger = shreddingConsole;
