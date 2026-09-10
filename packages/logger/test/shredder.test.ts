@@ -123,6 +123,20 @@ describe("shred — structural safety", () => {
     const hostile = { get bad() { throw new Error("boom"); } };
     expect(() => shred(hostile)).not.toThrow();
   });
+
+  it("strips newlines/control chars so values can't forge new log lines (log injection)", () => {
+    const out = shred({ note: "ok\nFAKE 2020 ERROR admin login\r\nx\tYZ" }) as { note: string };
+    expect(out.note).not.toMatch(/[\n\r\t]/);
+    expect(out.note).toContain("FAKE");          // content kept, just flattened to one line
+  });
+
+  it("does not pollute Object.prototype via a malicious __proto__ key (prototype pollution)", () => {
+    const malicious = JSON.parse('{"__proto__": {"polluted": true}, "safe": 1}');
+    const out = shred(malicious) as Record<string, unknown>;
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined(); // global proto untouched
+    expect(out.safe).toBe(1);
+    expect(out.__proto__).not.toMatchObject({ polluted: true });
+  });
 });
 
 describe("shredRecordInPlace — frozen contract", () => {

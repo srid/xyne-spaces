@@ -20,6 +20,11 @@ const DEFAULTS: Required<ShredOptions> = {
 
 const REDACTED = "[REDACTED]";
 
+// Keys that must never be written onto the output object — assigning a
+// user-controlled `__proto__`/`constructor`/`prototype` would pollute the
+// prototype chain. They carry no log value, so we drop them.
+const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 // Secret stems, matched as substrings on the normalized key (so accessToken,
 // x-api-key, refresh_token, clientSecret all hit).
 const SECRET_KEY_RE =
@@ -52,10 +57,13 @@ const VALUE_PATTERNS: Array<[RegExp, string]> = [
   [/\b(password|passwd|pwd|token|secret|api[_-]?key)\b(\s*[:=]\s*)("?)([^\s,;"']{4,})\3/gi, "$1$2[REDACTED]"],
 ];
 
-/** Strip control chars that could corrupt a log line, but keep \t \n \r. */
+// Neutralise newlines/tabs (→ space) so a user value can't forge extra log
+// lines on a plain-text sink (log injection), and drop other C0/DEL control
+// chars entirely. On JSON sinks this is belt-and-suspenders; on console/stdout
+// sinks it's the actual guard.
 function scrubControlChars(s: string): string {
   // eslint-disable-next-line no-control-regex
-  return s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+  return s.replace(/[\t\n\r\v\f]/g, " ").replace(/[\x00-\x08\x0E-\x1F\x7F]/g, "");
 }
 
 function redactString(s: string, max: number): string {
@@ -125,7 +133,7 @@ function shredNode(value: unknown, seen: WeakSet<object>, depth: number, opts: R
       return arr;
     }
 
-    const out: Record<string, LogValueOut> = {};
+    const out: Record<string, LogValueOut> = Object.create(null) as Record<string, LogValueOut>;
     let count = 0;
     for (const key of Object.keys(value as Record<string, unknown>)) {
       if (count >= opts.maxEntries) {
@@ -133,6 +141,8 @@ function shredNode(value: unknown, seen: WeakSet<object>, depth: number, opts: R
         break;
       }
       count++;
+      // Prototype-pollution guard: never write a user-controlled __proto__ etc.
+      if (FORBIDDEN_KEYS.has(key)) continue;
       // KEY detector: secret-named field redacted wholesale (don't recurse into it).
       out[key] = isSecretKey(key) ? REDACTED : shredNode((value as Record<string, unknown>)[key], seen, depth + 1, opts);
     }
@@ -175,6 +185,7 @@ export function shredRecordInPlace<T extends Record<string, unknown>>(
   try {
     for (const key of Object.keys(rec)) {
       if (key === "level" || key === "timestamp") continue;
+      if (FORBIDDEN_KEYS.has(key)) continue; // prototype-pollution guard
       const value = rec[key];
       if (key === "message") {
         rec[key] = typeof value === "string" ? redactString(value, o.maxStringLength) : shred(value, o);
