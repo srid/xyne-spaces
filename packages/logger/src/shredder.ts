@@ -20,10 +20,9 @@ const DEFAULTS: Required<ShredOptions> = {
 
 const REDACTED = "[REDACTED]";
 
-// Keys that must never be written onto the output object — assigning a
-// user-controlled `__proto__`/`constructor`/`prototype` would pollute the
-// prototype chain. They carry no log value, so we drop them.
-const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+// A user-controlled `__proto__`/`constructor`/`prototype` key must never be
+// written onto an object (prototype pollution / property injection). They carry
+// no log value, so we drop them via an explicit literal guard at each write site.
 
 // Secret stems, matched as substrings on the normalized key (so accessToken,
 // x-api-key, refresh_token, clientSecret all hit).
@@ -141,8 +140,8 @@ function shredNode(value: unknown, seen: WeakSet<object>, depth: number, opts: R
         break;
       }
       count++;
-      // Prototype-pollution guard: never write a user-controlled __proto__ etc.
-      if (FORBIDDEN_KEYS.has(key)) continue;
+      // Property-injection / prototype-pollution guard: never write these keys.
+      if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
       // KEY detector: secret-named field redacted wholesale (don't recurse into it).
       out[key] = isSecretKey(key) ? REDACTED : shredNode((value as Record<string, unknown>)[key], seen, depth + 1, opts);
     }
@@ -185,7 +184,8 @@ export function shredRecordInPlace<T extends Record<string, unknown>>(
   try {
     for (const key of Object.keys(rec)) {
       if (key === "level" || key === "timestamp") continue;
-      if (FORBIDDEN_KEYS.has(key)) continue; // prototype-pollution guard
+      // Property-injection / prototype-pollution guard.
+      if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
       const value = rec[key];
       if (key === "message") {
         rec[key] = typeof value === "string" ? redactString(value, o.maxStringLength) : shred(value, o);
